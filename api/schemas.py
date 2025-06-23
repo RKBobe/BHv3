@@ -4,8 +4,11 @@ from pydantic import BaseModel, EmailStr
 from typing import Optional
 from datetime import datetime
 
-# --- User Schemas ---
+# Schema for the data inside the JWT
+class TokenData(BaseModel):
+    email: Optional[str] = None
 
+# Schemas for User data handling
 class UserBase(BaseModel):
     email: EmailStr
 

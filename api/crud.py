@@ -135,3 +135,153 @@ def get_score_averages_by_subject(db: Session, subject_id: int):
             "score_count": avg_data["score_count"]
         })
     return response_data
+
+# ==============================================================================
+# Reward System CRUD
+# ==============================================================================
+
+def create_reward_rule(db: Session, rule: schemas.RewardRuleCreate, subject_id: int):
+    """Creates a new reward rule for a subject."""
+    db_rule = models.RewardRule(**rule.model_dump(), subject_id=subject_id)
+    db.add(db_rule)
+    db.commit()
+    db.refresh(db_rule)
+    return db_rule
+
+def get_reward_rules(db: Session, subject_id: int):
+    """Retrieves all reward rules for a subject."""
+    return db.query(models.RewardRule).filter(models.RewardRule.subject_id == subject_id).all()
+
+def get_reward_account(db: Session, subject_id: int):
+    """
+    Retrieves the reward account for a subject.
+    Creates one if it doesn't exist.
+    """
+    account = db.query(models.RewardAccount).filter(models.RewardAccount.subject_id == subject_id).first()
+    if not account:
+        account = models.RewardAccount(subject_id=subject_id, balance=0)
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+    return account
+
+def process_payout(db: Session, subject_id: int, amount: int, description: str):
+    """
+    Deducts an amount from the subject's reward account (payout).
+    Creates a transaction record.
+    """
+    account = get_reward_account(db, subject_id)
+
+    if account.balance < amount:
+        raise HTTPException(
+            status_code=400,
+            detail="Insufficient funds in reward account"
+        )
+
+    # Create Debit Transaction
+    transaction = models.RewardTransaction(
+        account_id=account.id,
+        amount=-amount, # Negative for debit
+        description=description
+    )
+
+    # Update Balance
+    account.balance -= amount
+
+    db.add(transaction)
+    db.add(account) # Explicitly add account to session for update, though usually auto-tracked
+    db.commit()
+    db.refresh(account)
+    return account
+
+def evaluate_rewards(db: Session, subject_id: int):
+    """
+    Evaluates all reward rules for a subject against their current score averages.
+    If a rule is met, creates a credit transaction.
+
+    NOTE: In a real production system, we would need a way to prevent duplicate
+    payouts for the same 'period' (e.g., store 'last_evaluated_at' or link
+    transactions to specific time windows). For this MVP, it calculates based on
+    all-time averages and pays out immediately if the threshold is met.
+    Ideally, this should be triggered periodically and check 'since last check'.
+    """
+    rules = get_reward_rules(db, subject_id)
+    if not rules:
+        return {"message": "No rules defined for this subject."}
+
+    account = get_reward_account(db, subject_id)
+
+    # Get current averages
+    # This returns a list of dicts: [{'definition': Obj, 'average_score': 85.5, ...}, ...]
+    averages_data = get_score_averages_by_subject(db, subject_id)
+
+    # Convert to a map for easy lookup by definition_id
+    # Key: definition_id, Value: average_score
+    avg_map = {
+        item['definition'].id: item['average_score']
+        for item in averages_data
+        if item['average_score'] is not None
+    }
+
+    transactions_created = []
+
+    for rule in rules:
+        # 1. Determine the score to check
+        score_to_check = None
+
+        if rule.behavior_definition_id:
+            # Specific behavior rule
+            score_to_check = avg_map.get(rule.behavior_definition_id)
+        else:
+            # Global rule? (Average of averages? Or requires a global score concept?)
+            # For MVP, let's skip global rules or implement simple avg of all scores
+            pass
+
+        if score_to_check is None:
+            continue
+
+        # 2. Check condition
+        condition_met = False
+        if rule.comparison_operator == "gt" and score_to_check > rule.threshold_value:
+            condition_met = True
+        elif rule.comparison_operator == "gte" and score_to_check >= rule.threshold_value:
+            condition_met = True
+        elif rule.comparison_operator == "lt" and score_to_check < rule.threshold_value:
+            condition_met = True
+        elif rule.comparison_operator == "lte" and score_to_check <= rule.threshold_value:
+            condition_met = True
+        elif rule.comparison_operator == "eq" and score_to_check == rule.threshold_value:
+            condition_met = True
+
+        # 3. Apply Reward (Blindly for MVP - see Note above)
+        if condition_met:
+            # Check if we should payout?
+            # Real logic needed here: "Has this rule been triggered for this period?"
+            # For MVP demo, we will just create the transaction.
+            # USER WARNING: Clicking this multiple times will pay out multiple times.
+
+            description = f"Reward earned: Rule {rule.id} met (Score {score_to_check} {rule.comparison_operator} {rule.threshold_value})"
+
+            tx = models.RewardTransaction(
+                account_id=account.id,
+                amount=rule.reward_amount,
+                description=description
+            )
+            account.balance += rule.reward_amount
+            db.add(tx)
+            transactions_created.append(description)
+
+    if transactions_created:
+        db.add(account)
+        db.commit()
+        db.refresh(account)
+        return {
+            "status": "Rewards applied",
+            "new_balance": account.balance,
+            "transactions": transactions_created
+        }
+    else:
+        return {
+            "status": "No new rewards earned",
+            "current_balance": account.balance
+        }

@@ -78,6 +78,7 @@ router_definitions = APIRouter(
     prefix="/subjects/{subject_id}/definitions", tags=["Behavior Definitions"]
 )
 router_scores = APIRouter(tags=["Scores"])
+router_rewards = APIRouter(prefix="/subjects/{subject_id}/rewards", tags=["Rewards"])
 
 
 # ==============================================================================
@@ -208,9 +209,64 @@ def get_score_averages_for_subject(
     return crud.get_score_averages_by_subject(db=db, subject_id=subject_id)
 
 
+# --- Rewards ---
+@router_rewards.post("/rules", response_model=schemas.RewardRule, summary="Create Reward Rule")
+def create_reward_rule(
+    subject_id: int,
+    rule: schemas.RewardRuleCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    crud.get_subject_and_verify_ownership(db, subject_id, current_user.id)
+    return crud.create_reward_rule(db, rule, subject_id)
+
+@router_rewards.get("/rules", response_model=List[schemas.RewardRule], summary="List Reward Rules")
+def list_reward_rules(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    crud.get_subject_and_verify_ownership(db, subject_id, current_user.id)
+    return crud.get_reward_rules(db, subject_id)
+
+@router_rewards.get("/account", response_model=schemas.RewardAccount, summary="Get Reward Account Balance")
+def get_reward_account(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    crud.get_subject_and_verify_ownership(db, subject_id, current_user.id)
+    return crud.get_reward_account(db, subject_id)
+
+@router_rewards.post("/calculate", summary="Trigger Reward Calculation")
+def trigger_reward_calculation(
+    subject_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    crud.get_subject_and_verify_ownership(db, subject_id, current_user.id)
+    return crud.evaluate_rewards(db, subject_id)
+
+@router_rewards.post("/payout", response_model=schemas.RewardAccount, summary="Process Payout")
+def process_payout(
+    subject_id: int,
+    transaction: schemas.RewardTransactionBase,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    crud.get_subject_and_verify_ownership(db, subject_id, current_user.id)
+    # The transaction schema has 'amount', we assume positive input means "pay this much out"
+    # But for safety, we should ensure the user sends a positive number, and we handle the logic as a debit
+    if transaction.amount <= 0:
+        raise HTTPException(status_code=400, detail="Payout amount must be positive")
+
+    return crud.process_payout(db, subject_id, transaction.amount, transaction.description)
+
+
 # --- Include Routers ---
 app.include_router(router_auth)
 app.include_router(router_users)
 app.include_router(router_subjects)
 app.include_router(router_definitions)
 app.include_router(router_scores)
+app.include_router(router_rewards)

@@ -1,6 +1,7 @@
 # api/main.py
 
 from fastapi import FastAPI, Depends, HTTPException, status, APIRouter
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from sqlalchemy import text
@@ -31,6 +32,15 @@ app = FastAPI(
     title="BHV3 API",
     description="The central API for the BHV3 project, with a full hierarchical data model.",
     version="2.2.0"  # Version update for fix
+)
+
+# Allow CORS for local frontend development
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://localhost:4173"], # Vite defaults
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # ==============================================================================

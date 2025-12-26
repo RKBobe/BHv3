@@ -1,9 +1,16 @@
 # api/security.py
 
+import logging
+import os
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
+
+from dotenv import load_dotenv
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+
+load_dotenv()
 
 # Password Hashing Setup
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
@@ -11,7 +18,16 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # JWT Configuration
 # IMPORTANT: Replace this key with a long, random string.
 # Generate one with: openssl rand -hex 32
-SECRET_KEY = "a_very_secret_key_that_should_be_changed"
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    SECRET_KEY = secrets.token_hex(32)
+    # Warning: Using a generated key means tokens will be invalid after restart
+    logging.warning(
+        "SECRET_KEY not found in environment. "
+        "Using a temporary generated key. "
+        "Set SECRET_KEY in .env for persistence."
+    )
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 

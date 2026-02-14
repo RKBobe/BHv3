@@ -36,6 +36,8 @@ class Subject(Base):
     owner = relationship("User", back_populates="subjects")
     definitions = relationship("BehaviorDefinition", back_populates="subject", cascade="all, delete-orphan")
     scores = relationship("BehaviorScore", back_populates="subject", cascade="all, delete-orphan")
+    reward_account = relationship("RewardAccount", uselist=False, back_populates="subject", cascade="all, delete-orphan")
+    reward_rules = relationship("RewardRule", back_populates="subject", cascade="all, delete-orphan")
 
     # This ensures a user cannot have two subjects with the same name.
     __table_args__ = (UniqueConstraint('user_id', 'name', name='_user_id_subject_name_uc'),)
@@ -76,3 +78,51 @@ class BehaviorScore(Base):
     # Relationships
     subject = relationship("Subject", back_populates="scores")
     definition = relationship("BehaviorDefinition", back_populates="scores")
+
+
+class RewardAccount(Base):
+    """
+    Tracks the accumulated 'balance' for a Subject.
+    """
+    __tablename__ = "reward_accounts"
+    id = Column(Integer, primary_key=True, index=True)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), unique=True, nullable=False)
+    balance = Column(Integer, default=0)  # Stored in smallest currency unit (e.g., cents) or points
+
+    # Relationships
+    subject = relationship("Subject", back_populates="reward_account")
+    transactions = relationship("RewardTransaction", back_populates="account", cascade="all, delete-orphan")
+
+
+class RewardRule(Base):
+    """
+    Defines a rule for earning rewards.
+    Example: "If avg score of Definition X > 80, earn 100 points".
+    """
+    __tablename__ = "reward_rules"
+    id = Column(Integer, primary_key=True, index=True)
+    subject_id = Column(Integer, ForeignKey("subjects.id"), nullable=False)
+    behavior_definition_id = Column(Integer, ForeignKey("behavior_definitions.id"), nullable=True) # Optional: global rule vs specific behavior
+
+    threshold_value = Column(Integer, nullable=False) # e.g., 80
+    reward_amount = Column(Integer, nullable=False)   # e.g., 100 (cents/points)
+    comparison_operator = Column(String, default="gt") # gt, lt, eq, gte, lte
+
+    # Relationships
+    subject = relationship("Subject", back_populates="reward_rules")
+    behavior_definition = relationship("BehaviorDefinition")
+
+
+class RewardTransaction(Base):
+    """
+    Records a credit (earning) or debit (payout).
+    """
+    __tablename__ = "reward_transactions"
+    id = Column(Integer, primary_key=True, index=True)
+    account_id = Column(Integer, ForeignKey("reward_accounts.id"), nullable=False)
+    amount = Column(Integer, nullable=False) # Positive for credit, Negative for debit
+    description = Column(String, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    account = relationship("RewardAccount", back_populates="transactions")

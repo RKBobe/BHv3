@@ -95,7 +95,46 @@ class User(UserBase):
 
     class Config:
         from_attributes = True
-        
+
+# --- Reward Schemas ---
+
+class RewardRuleBase(BaseModel):
+    threshold_value: int
+    reward_amount: int
+    comparison_operator: str = "gt"
+    behavior_definition_id: Optional[int] = None
+
+class RewardRuleCreate(RewardRuleBase):
+    pass
+
+class RewardRule(RewardRuleBase):
+    id: int
+    subject_id: int
+
+    class Config:
+        from_attributes = True
+
+class RewardTransactionBase(BaseModel):
+    amount: int
+    description: str
+
+class RewardTransaction(RewardTransactionBase):
+    id: int
+    account_id: int
+    created_at: date  # Simplified for now, or use datetime
+
+    class Config:
+        from_attributes = True
+
+class RewardAccount(BaseModel):
+    id: int
+    subject_id: int
+    balance: int
+    transactions: List[RewardTransaction] = []
+
+    class Config:
+        from_attributes = True
+
 # --- Token Schemas ---
 class TokenData(BaseModel):
     email: Optional[str] = None
